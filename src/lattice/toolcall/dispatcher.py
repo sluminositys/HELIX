@@ -22,6 +22,13 @@ class ToolCallDispatcher:
 
     def dispatch(self, step: AgenticExecutionStep) -> StructuredObservation:
         toolcall_event_id = f"toolcall-event-{uuid4()}"
+        spec_id = step.toolcall_spec_id
+        if spec_id is None:
+            return _failure_observation(
+                toolcall_event_id=toolcall_event_id,
+                error_class="ToolCallValidationFailed",
+                reason="Legacy ToolCall execution requires toolcall_spec_id.",
+            )
         validation = self.validator.validate_step(step)
         if validation.status == "blocked":
             return _failure_observation(
@@ -31,7 +38,7 @@ class ToolCallDispatcher:
             )
 
         try:
-            spec = self.registry.require_active(step.toolcall_spec_id)
+            spec = self.registry.require_active(spec_id)
         except ToolCallRegistryError as error:
             return _failure_observation(
                 toolcall_event_id=toolcall_event_id,

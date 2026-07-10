@@ -17,11 +17,31 @@ class ExperienceCandidate(LatticeBaseModel):
         "method_comparison",
         "success_pattern",
         "failure_pattern",
+        "workflow_insight",
+        "task_constraint",
+        "domain_heuristic",
+        "skill_update",
+        "resource_discovery",
+        "workflow_update",
     ]
+    summary: str = ""
+    trigger_conditions: list[str] = Field(default_factory=list)
+    applicable_task_tags: list[str] = Field(default_factory=list)
+    applicable_method_tags: list[str] = Field(default_factory=list)
+    applicable_tool_names: list[str] = Field(default_factory=list)
+    supporting_run_ids: list[str] = Field(default_factory=list)
+    evidence_refs: list[str] = Field(default_factory=list)
+    occurrence_count: int = 1
+    generality: Literal["single_observation", "likely_general", "general"] = (
+        "single_observation"
+    )
+    confidence: float = 0.0
+    contradiction_refs: list[str] = Field(default_factory=list)
+    proposed_target_layers: list[str] = Field(default_factory=list)
     source_event_ids: list[str] = Field(default_factory=list)
     trigger_condition: dict[str, Any] = Field(default_factory=dict)
-    proposed_graph_patch_id: str
-    scope: Literal["user", "lab", "project", "global"]
+    proposed_graph_patch_id: str | None = None
+    scope: Literal["user", "lab", "project", "global"] = "global"
     confidence_state: Literal["raw", "reviewed", "approved", "rejected"] = "raw"
 
 

@@ -2,6 +2,7 @@
 
 import argparse
 import json
+from pathlib import Path
 from typing import Any, cast
 
 from pydantic import BaseModel
@@ -17,7 +18,7 @@ from lattice.graph import (
 )
 from lattice.graph.runtime_loader import GraphRuntimeLoadError, load_graph_runtime
 from lattice.orchestration import run_execution, run_plan_only
-from lattice.runtime import FileAgentEventLog
+from lattice.runtime import FileAgentEventLog, ScriptGenerationAgent, ScriptRunner
 from lattice.schemas import PermissionMode
 
 
@@ -99,6 +100,15 @@ def main(argv: list[str] | None = None) -> int:
             healthy_graph_store=cast(HealthyGraphStore | None, runtime.l1_store),
             full_graph_store=cast(FullGraphStore | None, runtime.l0_store),
             apply_experience_patch=not args.skip_experience_write,
+            script_generation_agent=ScriptGenerationAgent.from_model_settings(
+                settings.models
+            ),
+            script_runner=ScriptRunner(
+                output_root=(
+                    Path(settings.runtime_paths.output_root)
+                    / settings.runtime_paths.runs_subdir
+                )
+            ),
         )
         print(json.dumps(_to_jsonable(state), ensure_ascii=False, indent=2, sort_keys=True))
         return 0

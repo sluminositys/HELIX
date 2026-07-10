@@ -1,33 +1,27 @@
 ﻿from __future__ import annotations
 
 from pathlib import Path
-from uuid import uuid4
 
-from lattice.schemas import TaskFingerprint
+from lattice.core.task_understanding import TaskUnderstandingAgent
+from lattice.schemas import ExecutionIntent, TaskFingerprint
 
 
 class TaskFingerprinter:
-    """Conservative task fingerprint boundary.
-
-    The first implementation does not infer bioinformatics semantics. It creates a valid
-    `TaskFingerprint`, preserves the original request, and records unknown fields as ambiguity.
-    """
+    """Compatibility facade over the domain-general task-understanding agent."""
 
     def __init__(self, prompt_path: str | Path = "config/prompts/task_fingerprint.md") -> None:
         self.prompt_path = Path(prompt_path)
 
-    def fingerprint(self, request: str, *, user_id: str = "local") -> TaskFingerprint:
-        normalized_request = request.strip()
-        return TaskFingerprint(
-            fingerprint_id=f"tf-{uuid4()}",
+    def fingerprint(
+        self,
+        request: str,
+        *,
+        user_id: str = "local",
+        execution_intent: ExecutionIntent = "plan_only",
+    ) -> TaskFingerprint:
+        fingerprint, _ = TaskUnderstandingAgent().understand(
+            request,
             user_id=user_id,
-            task=normalized_request,
-            task_category="unclassified",
-            execution_intent="plan_only",
-            ambiguity_items=[
-                "task_category",
-                "data_types",
-                "input_formats",
-                "output_goals",
-            ],
+            execution_intent=execution_intent,
         )
+        return fingerprint

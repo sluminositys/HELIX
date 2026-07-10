@@ -7,5 +7,7 @@ def test_task_fingerprinter_is_conservative_about_unknown_fields() -> None:
     assert fingerprint.task == "Analyze provided dataset"
     assert fingerprint.user_id == "user-1"
     assert fingerprint.execution_intent == "plan_only"
-    assert fingerprint.task_category == "unclassified"
-    assert "task_category" in fingerprint.ambiguity_items
+    assert fingerprint.task_category == "data_analysis"
+    assert fingerprint.research_mode == "adaptive"
+    assert fingerprint.output_goals == ["analysis_result"]
+    assert fingerprint.ambiguity_items == []

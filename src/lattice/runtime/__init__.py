@@ -12,6 +12,13 @@ from lattice.runtime.script_agents import (
     ScriptReviewAgent,
     ScriptRunner,
 )
+from lattice.runtime.script_drafting import (
+    LangChainScriptDraftProvider,
+    ScriptDraftError,
+    ScriptDraftProvider,
+    StaticScriptDraftProvider,
+    UnavailableScriptDraftProvider,
+)
 from lattice.runtime.session_state_machine import (
     SessionStateMachine,
     SessionStateTransitionError,
@@ -27,6 +34,11 @@ __all__ = [
     "ScriptGenerationAgent",
     "ScriptReviewAgent",
     "ScriptRunner",
+    "LangChainScriptDraftProvider",
+    "ScriptDraftError",
+    "ScriptDraftProvider",
+    "StaticScriptDraftProvider",
+    "UnavailableScriptDraftProvider",
     "SessionStateMachine",
     "SessionStateTransitionError",
     "SessionStatus",

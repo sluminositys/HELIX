@@ -32,3 +32,15 @@ class ClaimAuditReport(LatticeBaseModel):
         "not_applicable",
     ]
     provenance: list[Provenance] = Field(default_factory=list)
+
+
+class ResultVerificationReport(LatticeBaseModel):
+    report_id: str
+    status: Literal["completed", "repairable", "failed", "not_executed"]
+    success_criteria: list[str] = Field(default_factory=list)
+    satisfied_criteria: list[str] = Field(default_factory=list)
+    unverified_criteria: list[str] = Field(default_factory=list)
+    missing_artifacts: list[str] = Field(default_factory=list)
+    issues: list[str] = Field(default_factory=list)
+    repair_guidance: list[str] = Field(default_factory=list)
+    provenance: list[Provenance] = Field(default_factory=list)

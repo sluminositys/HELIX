@@ -5,7 +5,7 @@ from typing import Any
 
 from pydantic import ValidationError
 
-from lattice.schemas import RuntimeGraphContext, ToolCallSpec
+from lattice.schemas import RuntimeGraphContext, RuntimeLayerView, ToolCallSpec
 
 
 class ToolCallRegistryError(ValueError):
@@ -51,7 +51,7 @@ class ToolCallRegistry:
         return spec
 
 
-def _runtime_nodes(view: dict[str, Any]) -> list[dict[str, Any]]:
+def _runtime_nodes(view: RuntimeLayerView | dict[str, Any]) -> list[dict[str, Any]]:
     nodes = view.get("nodes", [])
     if not isinstance(nodes, list):
         return []

@@ -4,7 +4,7 @@ from typing import Any
 
 from pydantic import Field
 
-from lattice.schemas import LatticeBaseModel, RuntimeGraphContext, TaskFingerprint
+from lattice.schemas import LatticeBaseModel, RuntimeGraphContext, RuntimeLayerView, TaskFingerprint
 
 
 class WorkflowSearchResult(LatticeBaseModel):
@@ -82,7 +82,7 @@ class WorkflowPathSearch:
         )
 
 
-def _nodes(view: dict[str, Any]) -> list[dict[str, Any]]:
+def _nodes(view: RuntimeLayerView | dict[str, Any]) -> list[dict[str, Any]]:
     raw_nodes = view.get("nodes", [])
     if not isinstance(raw_nodes, list):
         return []

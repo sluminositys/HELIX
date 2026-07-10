@@ -54,7 +54,29 @@ def _build_execution_step(raw_step: dict[str, Any]) -> AgenticExecutionStep:
     workflow_step_id = str(raw_step.get("node_id") or step_id)
     return AgenticExecutionStep(
         step_id=step_id,
+        objective=_optional_string(
+            attributes.get("objective")
+            or attributes.get("script_goal")
+            or attributes.get("goal")
+            or attributes.get("description")
+            or raw_step.get("canonical_name")
+        ),
         workflow_step_id=workflow_step_id,
+        candidate_skill_ids=_string_list(attributes.get("skill_ids")),
+        candidate_resource_ids=_string_list(attributes.get("resource_ids")),
+        input_artifacts=_string_list(attributes.get("input_artifacts")),
+        expected_outputs=_string_list(
+            attributes.get("expected_outputs") or attributes.get("artifact_expectations")
+        ),
+        constraints=_string_list(attributes.get("constraints")),
+        success_criteria=_string_list(
+            attributes.get("success_criteria") or attributes.get("quality_checks")
+        ),
+        script_requirements=_string_list(attributes.get("script_requirements")),
+        permission_requirements=_dict(
+            attributes.get("permission_requirements")
+            or attributes.get("permission_requirement")
+        ),
         skill_ids=_string_list(attributes.get("skill_ids")),
         suggested_tool_names=_string_list(attributes.get("suggested_tool_names")),
         script_goal=_optional_string(

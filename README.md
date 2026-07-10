@@ -1,44 +1,54 @@
 # LATTICE
 
-**Layered Agent for Tool-Augmented Task Intelligence, Curation, and Evolution in Genomics and Bioinformatics**
+**Layered Agent for Tool-Augmented Task Intelligence, Curation, and Evolution**
 
-LATTICE 是一个独立的 Python agent-native workflow knowledge graph system，用于把用户提出的生物信息学研究需求转化为可检索、可验证、可执行、可审计、可持续进化的工作流。
+LATTICE 是面向通用科研任务的自主 agent 系统。它把论文、文档、软件、研究流程、运行经验和用户约束组织成分层图谱记忆，并让主 agent 在任务理解、记忆选择、策略形成、脚本生成、审查、执行、结果验证和经验蒸馏的全过程中使用这些记忆。
 
-系统核心不是把大模型包装成问答接口，而是围绕三层图谱和 ToolCall 执行闭环工作：
+LATTICE 不是固定 pipeline。G2 中已有的流程是运行时参考，不是必须逐步执行的模板；当图谱不能覆盖当前问题时，agent 可以形成新的任务策略并生成脚本，也可以通过 `RuntimeCapabilityDiscoverer` 端口接入外部能力发现实现。任务结束后，系统只把可审计的运行记录写入当次状态，单次观察形成 L6 经验候选，达到跨运行泛化门槛后才允许进入受治理的长期图谱更新。
 
-- L0 Persistent Full Bio-EvoKG：保存完整知识、候选能力、执行经验、GraphPatch、审计和生命周期记录。
-- L1 Memory-Healthy Working Bio-EvoKG：由健康化策略筛选出的默认工作图，只保留可默认参与规划和执行的健康内容。
-- L2 Task-conditioned Runtime GraphContext：每次请求从 L1 动态投影出的五个运行时子图，用于当次规划、执行和验证。
+## 图谱记忆
 
-L0 和 L1 使用同一套六层异构图 schema：
+- **G0：Persistent Full Graph**。保存完整事实、候选知识、来源、运行记录、生命周期状态和待审 GraphPatch。
+- **G1：Memory-Healthy Graph**。从 G0 中筛选 `active_hot` / `active_warm` 等健康内容，作为主 agent 的默认长期记忆。
+- **G2：Task-conditioned Runtime GraphContext**。围绕当前 `ResearchTask` 从 G1 投影出的任务、证据、流程、资源、技能和经验视图；允许包含临时候选和跨层边。
 
-- Task
-- Evidence
-- Workflow
-- Resource
-- Implementation
-- Experience
+G0 与 G1 使用六层异构图：
 
-demo 模式和正式模式也使用同一套 schema。demoL0/demoL1 的构建过程在项目外完成，最终资产可以随系统打包进入 demo 模式；运行时只读取 demoL0/demoL1，不启动 builder、evolution 或图写入。正式模式同样支持外部构建好的 L0/L1 资产导入，并通过数据库适配器接入 Neo4j、PostgreSQL 和 Qdrant。
+1. **L1 Task**：科研目标、问题类型、输入输出要求与约束。
+2. **L2 Evidence**：论文、文档、数据、结论及其来源证据。
+3. **L3 Workflow**：可复用的方法结构、步骤关系和质量检查点。
+4. **L4 Resource**：软件、模型、数据服务、数据集和运行资源。
+5. **L5 Skill**：供 agent 阅读的工具使用知识，包括参数、输入输出、环境、失败模式和恢复策略。
+6. **L6 Experience**：可泛化的成功模式、失败模式、方法比较、流程经验、任务约束和用户偏好。
 
-当前仓库不内置示例实验、虚假接口、mock 数据集或预设领域工作流。真实图资产、工具能力和领域内容都应通过 schema 校验、资产导入、ToolCallSpec 注册和 GraphPatch 治理进入系统。
+## 主执行链
 
-## 当前能力
+```text
+用户请求
+  -> TaskUnderstandingAgent: 生成 ResearchTask / TaskFingerprint
+  -> Graph projection: 从 G1 形成类型化 G2 运行时视图
+  -> Memory selection: 选择 Workflow / Resource / Skill / Experience 上下文
+  -> ResearchStrategyPlanner: 参考 G2 或动态生成任务策略
+  -> WorkflowVerifier: 检查策略是否可执行，不要求已有 G2 路径
+  -> ScriptGenerationAgent: 基于任务、策略、L5 Skill 和 L6 Experience 生成脚本
+  -> ScriptReviewAgent: AST、权限、危险操作、输出路径和步骤覆盖审查
+  -> PermissionGate: 按执行模式决定是否允许运行
+  -> ScriptRunner: 在独立运行目录执行并保留脚本、stdout、stderr 和产物
+  -> ResultVerifier: 验证进程状态、声明产物和可确定成功条件
+  -> ExperienceCandidateExtractor: 提炼 L6 候选
+  -> ExperienceGeneralizationGate: 多次支持后才允许形成长期 GraphPatch
+  -> MemoryHealthCompiler: 只把健康、已激活内容编译进 G1
+```
 
-- LangGraph 编排的规划流程和可执行流程。
-- TaskFingerprint、RuntimeGraphContext、AgenticExecutionPlan、ToolCallSpec、StructuredObservation、GraphPatch 等核心 schema。
-- L0/L1 六层异构图节点、边、OperationalProfile 和资产校验。
-- demo/production graph profile 策略，以及只读 demo 图运行模式。
-- Neo4j L0/L1 图存储适配器。
-- PostgreSQL core table 初始化、AgentEventLog 和 ToolCallSpec store。
-- Qdrant 图节点向量索引适配器。
-- CLI / Python / REST / database / containerized CLI RuntimeBackend。
-- ToolCall 注册、校验、派发和失败关闭。
-- 能力缺口检测、候选进化请求、候选工具和 ToolCallSpec GraphPatch 生成。
-- 执行经验转 Experience 层 GraphPatch，并可经审计后写入 L0。
-- MemoryHealthCompiler、生命周期状态管理、controlled L0 recall 和 HookBus 边界。
+脚本生成采用 fail-closed：未配置模型时 `execute` 会明确阻断，不会用占位脚本伪造成功。脚本审查或执行失败时，主执行图可以携带审查意见或错误日志发起有限次数修订。
 
-## 常用命令
+## LATTICE-G0-Extractor
+
+`LATTICE-G0-Extractor` 是同一整体中的外部知识采集与规范化子系统，独立仓库便于单独开发和批量抽取。它把论文、工具文档和其他来源提取为带 provenance 的 G0 GraphPatch；LATTICE 负责图谱治理、G1 健康化、G2 运行时使用、任务执行和经验回写。仓库分离不代表系统逻辑分离，两者通过相同的节点、边、GraphPatch、provenance 和 lifecycle 语义对接。
+
+## 配置与运行
+
+安装与检查：
 
 ```powershell
 uv sync --dev
@@ -47,13 +57,35 @@ uv run ruff check .
 uv run mypy
 ```
 
+配置脚本生成模型，例如 OpenAI：
+
+```powershell
+$env:LATTICE_MODELS__CHAT_PROVIDER = "openai"
+$env:LATTICE_MODELS__CHAT_MODEL = "gpt-4.1"
+$env:OPENAI_API_KEY = "<key>"
+```
+
+或 DeepSeek：
+
+```powershell
+$env:LATTICE_MODELS__CHAT_PROVIDER = "deepseek"
+$env:LATTICE_MODELS__CHAT_MODEL = "deepseek-chat"
+$env:DEEPSEEK_API_KEY = "<key>"
+```
+
+常用命令：
+
 ```powershell
 uv run lattice --help
 uv run lattice db init-postgres --config-dir config
-uv run lattice graph validate-assets --l0-path <L0资产目录> --l1-path <L1资产目录>
-uv run lattice graph import-assets --config-dir config --graph-profile <profile> --tier L0 --asset-path <L0资产目录>
+uv run lattice graph validate-assets --l0-path <G0资产目录> --l1-path <G1资产目录>
+uv run lattice graph import-assets --config-dir config --graph-profile <profile> --tier L0 --asset-path <G0资产目录>
 uv run lattice plan "<用户请求>" --config-dir config --graph-profile <profile>
 uv run lattice execute "<用户请求>" --config-dir config --graph-profile <profile>
 ```
 
-运行日志、命令记录、诊断输出和临时产物应放在 `D:\workspace\codex` 下，不直接写到仓库根目录。
+`ToolCallSpec`、dispatcher 和 backend 代码目前仅作为旧数据与迁移兼容层保留。主执行链使用 agent 生成脚本、独立审查、权限检查、隔离执行和结果验证，不再以 ToolCall 注册是否完备作为可执行前提。
+
+当前 V1 已实现单策略条件回路，但尚未实现 Co-Scientist 的多候选假设池、Reflection、Tournament、Meta-review 和完整 Graph-CBR ResearchCase。默认运行时能力发现器仍是 fail-closed no-op；需要联网检索、安装新软件或查询外部注册表时，应注入受权限控制的 `RuntimeCapabilityDiscoverer`。这些能力作为下一阶段认知层和发现后端扩展，不在 README 中伪装成已完成能力。
+
+运行日志、命令记录、诊断输出和临时产物默认放在 `D:\workspace\codex` 下，不写入仓库根目录。

@@ -46,7 +46,11 @@ from lattice.schemas.heterogeneous_graph import (
     WorkflowNodeType,
 )
 from lattice.schemas.planning import AgenticExecutionPlan, AgenticExecutionStep
-from lattice.schemas.runtime_context import GraphContextSufficiencyReport, RuntimeGraphContext
+from lattice.schemas.runtime_context import (
+    GraphContextSufficiencyReport,
+    RuntimeGraphContext,
+    RuntimeLayerView,
+)
 from lattice.schemas.script_runtime import (
     ArtifactManifest,
     RunRecord,
@@ -57,9 +61,13 @@ from lattice.schemas.script_runtime import (
     ScriptReviewResult,
     ScriptReviewStatus,
 )
-from lattice.schemas.task import TaskFingerprint
+from lattice.schemas.task import ResearchMode, ResearchTask, TaskFingerprint
 from lattice.schemas.toolcall import StructuredObservation, ToolCallSpec
-from lattice.schemas.verification import ClaimAuditReport, WorkflowAuditReport
+from lattice.schemas.verification import (
+    ClaimAuditReport,
+    ResultVerificationReport,
+    WorkflowAuditReport,
+)
 
 __all__ = [
     "Blocker",
@@ -81,6 +89,7 @@ __all__ = [
     "Provenance",
     "GraphContextSufficiencyReport",
     "RuntimeGraphContext",
+    "RuntimeLayerView",
     "AgenticExecutionPlan",
     "AgenticExecutionStep",
     "ArtifactManifest",
@@ -112,6 +121,8 @@ __all__ = [
     "SkillEdgeType",
     "SkillNodeType",
     "TaskFingerprint",
+    "ResearchMode",
+    "ResearchTask",
     "TaskEdgeType",
     "TaskNodeType",
     "ToolCallSpec",
@@ -119,6 +130,7 @@ __all__ = [
     "WorkflowEdgeType",
     "WorkflowNodeType",
     "WorkflowAuditReport",
+    "ResultVerificationReport",
     "ResourceEdgeType",
     "ResourceNodeType",
     "create_packaged_demo_graph_profile",

@@ -17,6 +17,7 @@ from lattice.schemas import (
     GraphPatch,
     Provenance,
     RuntimeGraphContext,
+    RuntimeLayerView,
     TaskFingerprint,
 )
 
@@ -136,17 +137,74 @@ class Neo4jHealthyGraphStore(HealthyGraphStore):
         self.driver = driver or _create_neo4j_driver(uri=uri, user=user, password=password)
 
     def project_runtime_context(self, fingerprint: TaskFingerprint) -> RuntimeGraphContext:
+        search_terms = _fingerprint_search_terms(fingerprint)
         query = """
         MATCH (n:BioEvoKGNode {graph_profile_id: $graph_profile_id, graph_tier: 'G1'})
         WHERE n.lifecycle_state IN ['active_hot', 'active_warm']
-        RETURN properties(n) AS node
+        WITH n, reduce(
+          score = 0,
+          term IN $search_terms |
+          score + CASE
+            WHEN toLower(coalesce(n.canonical_name, '')) CONTAINS term
+              OR toLower(coalesce(n.node_type, '')) CONTAINS term
+              OR toLower(coalesce(n.attributes, '')) CONTAINS term
+            THEN 1 ELSE 0
+          END
+        ) AS relevance
+        ORDER BY relevance DESC,
+          CASE n.lifecycle_state WHEN 'active_hot' THEN 2 ELSE 1 END DESC,
+          n.node_id
+        LIMIT 120
+        OPTIONAL MATCH (n)-[]-(neighbor:BioEvoKGNode {
+          graph_profile_id: $graph_profile_id,
+          graph_tier: 'G1'
+        })
+        WHERE neighbor.lifecycle_state IN ['active_hot', 'active_warm']
+        WITH collect(n) + collect(neighbor) AS candidates
+        UNWIND candidates AS candidate
+        WITH DISTINCT candidate
+        WHERE candidate IS NOT NULL
+        RETURN properties(candidate) AS node
         LIMIT 250
         """
         with self.driver.session(database=self.database) as session:
             records = session.execute_read(
-                lambda tx: list(tx.run(query, graph_profile_id=self.graph_profile_id))
+                lambda tx: list(
+                    tx.run(
+                        query,
+                        graph_profile_id=self.graph_profile_id,
+                        search_terms=search_terms,
+                    )
+                )
             )
-        nodes = [dict(record["node"]) for record in records]
+        nodes = sorted(
+            [_decode_neo4j_entity(dict(record["node"])) for record in records],
+            key=lambda node: (-_task_relevance(node, fingerprint), str(node.get("node_id", ""))),
+        )
+        node_ids = [str(node["node_id"]) for node in nodes if node.get("node_id")]
+        edge_query = """
+        MATCH (s:BioEvoKGNode)-[r]->(t:BioEvoKGNode)
+        WHERE s.graph_profile_id = $graph_profile_id
+          AND t.graph_profile_id = $graph_profile_id
+          AND s.graph_tier = 'G1'
+          AND t.graph_tier = 'G1'
+          AND s.node_id IN $node_ids
+          AND t.node_id IN $node_ids
+          AND r.lifecycle_state IN ['active_hot', 'active_warm']
+        RETURN properties(r) AS edge
+        LIMIT 1000
+        """
+        with self.driver.session(database=self.database) as session:
+            edge_records = session.execute_read(
+                lambda tx: list(
+                    tx.run(
+                        edge_query,
+                        graph_profile_id=self.graph_profile_id,
+                        node_ids=node_ids,
+                    )
+                )
+            )
+        edges = [_decode_neo4j_entity(dict(record["edge"])) for record in edge_records]
         by_layer: dict[str, list[dict[str, Any]]] = {
             "task": [],
             "evidence": [],
@@ -160,33 +218,86 @@ class Neo4jHealthyGraphStore(HealthyGraphStore):
             if layer in by_layer:
                 by_layer[layer].append(node)
 
-        missing: list[str] = []
-        if not by_layer["workflow"]:
-            missing.append("no workflow layer nodes projected from G1")
-        if not by_layer["resource"]:
-            missing.append("no resource layer nodes projected from G1")
+        edges_by_layer: dict[str, list[dict[str, Any]]] = {
+            layer: [] for layer in by_layer
+        }
+        cross_layer_edges: list[dict[str, Any]] = []
+        for edge in edges:
+            source_layer = edge.get("source_layer")
+            target_layer = edge.get("target_layer")
+            if source_layer == target_layer and source_layer in edges_by_layer:
+                edges_by_layer[str(source_layer)].append(edge)
+            else:
+                cross_layer_edges.append(edge)
+
+        missing_workflow = (
+            [] if by_layer["workflow"] else ["no workflow layer nodes projected from G1"]
+        )
+        missing_resource = (
+            [] if by_layer["resource"] else ["no resource layer nodes projected from G1"]
+        )
+        missing_skill = [] if by_layer["skill"] else ["no skill layer nodes projected from G1"]
+        missing_evidence = (
+            [] if by_layer["evidence"] else ["no evidence layer nodes projected from G1"]
+        )
+        missing_experience = (
+            [] if by_layer["experience"] else ["no experience layer nodes projected from G1"]
+        )
+        missing = [
+            *missing_workflow,
+            *missing_resource,
+            *missing_skill,
+            *missing_evidence,
+            *missing_experience,
+        ]
         status: Literal["sufficient", "insufficient"] = (
             "sufficient" if not missing else "insufficient"
         )
         report = GraphContextSufficiencyReport(
             report_id=f"gcsr-{uuid4()}",
             status=status,
-            missing_workflow_info=missing,
+            missing_workflow_info=missing_workflow,
+            missing_resource_info=missing_resource,
+            missing_skill_info=missing_skill,
+            missing_evidence_info=missing_evidence,
+            missing_experience_info=missing_experience,
             controlled_recall_required=bool(missing),
             controlled_recall_reason="G1 projection did not provide enough runtime graph context"
             if missing
             else None,
+            runtime_discovery_required=bool(missing),
+            runtime_discovery_queries=[fingerprint.task] if missing else [],
         )
         return RuntimeGraphContext(
             graph_context_id=f"rgc-{uuid4()}",
             task_fingerprint_id=fingerprint.fingerprint_id,
             source_graph_tier="G1",
-            G_task={"task": fingerprint.task, "nodes": by_layer["task"]},
-            G_evidence={"nodes": by_layer["evidence"]},
-            G_workflow={"nodes": by_layer["workflow"]},
-            G_resource={"nodes": by_layer["resource"]},
-            G_skill={"nodes": by_layer["skill"]},
-            G_experience={"nodes": by_layer["experience"]},
+            G_task=RuntimeLayerView(
+                task=fingerprint.task,
+                nodes=by_layer["task"],
+                edges=edges_by_layer["task"],
+            ),
+            G_evidence=RuntimeLayerView(
+                nodes=by_layer["evidence"],
+                edges=edges_by_layer["evidence"],
+            ),
+            G_workflow=RuntimeLayerView(
+                nodes=by_layer["workflow"],
+                edges=edges_by_layer["workflow"],
+            ),
+            G_resource=RuntimeLayerView(
+                nodes=by_layer["resource"],
+                edges=edges_by_layer["resource"],
+            ),
+            G_skill=RuntimeLayerView(
+                nodes=by_layer["skill"],
+                edges=edges_by_layer["skill"],
+            ),
+            G_experience=RuntimeLayerView(
+                nodes=by_layer["experience"],
+                edges=edges_by_layer["experience"],
+            ),
+            cross_layer_edges=cross_layer_edges,
             sufficiency_report=report,
             provenance=[
                 Provenance(
@@ -396,6 +507,45 @@ def _json_ready(payload: dict[str, Any]) -> dict[str, Any]:
         else:
             ready[key] = value
     return ready
+
+
+def _decode_neo4j_entity(payload: dict[str, Any]) -> dict[str, Any]:
+    decoded: dict[str, Any] = {}
+    for key, value in payload.items():
+        if isinstance(value, str) and value[:1] in {"{", "["}:
+            try:
+                decoded[key] = json.loads(value)
+                continue
+            except json.JSONDecodeError:
+                pass
+        decoded[key] = value
+    return decoded
+
+
+def _task_relevance(node: dict[str, Any], fingerprint: TaskFingerprint) -> int:
+    text = " ".join(
+        [
+            str(node.get("canonical_name", "")),
+            json.dumps(node.get("attributes", {}), ensure_ascii=False),
+        ]
+    ).lower()
+    terms = {
+        term.strip(".,;:()[]{}")
+        for term in fingerprint.task.lower().split()
+        if len(term.strip(".,;:()[]{}")) > 1
+    }
+    return sum(1 for term in terms if term in text)
+
+
+def _fingerprint_search_terms(fingerprint: TaskFingerprint) -> list[str]:
+    sources = [
+        fingerprint.task_category,
+        *fingerprint.data_types,
+        *fingerprint.input_formats,
+        *fingerprint.output_goals,
+        *re.findall(r"[a-zA-Z0-9_+.-]{2,}|[\u4e00-\u9fff]{2,}", fingerprint.task),
+    ]
+    return list(dict.fromkeys(value.lower() for value in sources if value))
 
 
 def _pascal(value: str) -> str:

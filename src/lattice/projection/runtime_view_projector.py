@@ -3,7 +3,12 @@
 from uuid import uuid4
 
 from lattice.graph import HealthyGraphStore
-from lattice.schemas import GraphContextSufficiencyReport, RuntimeGraphContext, TaskFingerprint
+from lattice.schemas import (
+    GraphContextSufficiencyReport,
+    RuntimeGraphContext,
+    RuntimeLayerView,
+    TaskFingerprint,
+)
 
 
 class RuntimeViewProjector:
@@ -22,13 +27,15 @@ class RuntimeViewProjector:
             missing_evidence_info=["no evidence view has been projected"],
             missing_experience_info=["no reusable L6 experience view has been projected"],
             controlled_recall_required=False,
+            runtime_discovery_required=True,
+            runtime_discovery_queries=[fingerprint.task],
         )
         return RuntimeGraphContext(
             graph_context_id=f"rgc-{uuid4()}",
             task_fingerprint_id=fingerprint.fingerprint_id,
             source_graph_tier="G1",
-            G_skill={"nodes": [], "edges": [], "role": "agent-readable skill reference"},
-            G_experience={"nodes": [], "edges": [], "role": "generalized experience reference"},
+            G_skill=RuntimeLayerView(role="agent-readable skill reference"),
+            G_experience=RuntimeLayerView(role="generalized experience reference"),
             repair_advice_view={"items": []},
             quality_checkpoint_view={"items": []},
             sufficiency_report=report,

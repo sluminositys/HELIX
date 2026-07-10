@@ -22,12 +22,19 @@ class ToolCallValidator:
     def validate_step(self, step: AgenticExecutionStep) -> ToolCallValidationReport:
         blockers: list[str] = []
         warnings: list[str] = []
+        spec_id = step.toolcall_spec_id
+        if spec_id is None:
+            return ToolCallValidationReport(
+                toolcall_spec_id="missing",
+                status="blocked",
+                blockers=["Legacy ToolCall execution requires toolcall_spec_id."],
+            )
 
         try:
-            spec = self.registry.require_active(step.toolcall_spec_id)
+            spec = self.registry.require_active(spec_id)
         except ToolCallRegistryError as error:
             return ToolCallValidationReport(
-                toolcall_spec_id=step.toolcall_spec_id,
+                toolcall_spec_id=spec_id,
                 status="blocked",
                 blockers=[str(error)],
             )
@@ -42,7 +49,7 @@ class ToolCallValidator:
 
         status: Literal["pass", "blocked"] = "blocked" if blockers else "pass"
         return ToolCallValidationReport(
-            toolcall_spec_id=step.toolcall_spec_id,
+            toolcall_spec_id=spec_id,
             status=status,
             blockers=blockers,
             warnings=warnings,

@@ -15,6 +15,7 @@ from lattice.schemas import (
     PackagedDemoGraphManifest,
     Provenance,
     RuntimeGraphContext,
+    RuntimeLayerView,
     TaskFingerprint,
 )
 
@@ -69,18 +70,19 @@ class PackagedHealthyGraphStore:
             graph_context_id=f"rgc-{uuid4()}",
             task_fingerprint_id=fingerprint.fingerprint_id,
             source_graph_tier="G1",
-            G_task={
-                "profile_id": self.profile.profile_id,
-                "mode": self.profile.mode,
-                "task": fingerprint.task,
-                "nodes": views["task"]["nodes"],
-                "edges": views["task"]["edges"],
-            },
-            G_evidence=views["evidence"],
-            G_workflow=views["workflow"],
-            G_resource=views["resource"],
-            G_skill=views["skill"],
-            G_experience=views["experience"],
+            G_task=RuntimeLayerView(
+                profile_id=self.profile.profile_id,
+                mode=self.profile.mode,
+                task=fingerprint.task,
+                nodes=views["task"]["nodes"],
+                edges=views["task"]["edges"],
+            ),
+            G_evidence=RuntimeLayerView(**views["evidence"]),
+            G_workflow=RuntimeLayerView(**views["workflow"]),
+            G_resource=RuntimeLayerView(**views["resource"]),
+            G_skill=RuntimeLayerView(**views["skill"]),
+            G_experience=RuntimeLayerView(**views["experience"]),
+            cross_layer_edges=views["cross_layer_edges"]["edges"],
             sufficiency_report=report,
             provenance=[
                 Provenance(
@@ -198,6 +200,7 @@ def _split_runtime_views(
         "resource": {"nodes": [], "edges": []},
         "skill": {"nodes": [], "edges": []},
         "experience": {"nodes": [], "edges": []},
+        "cross_layer_edges": {"nodes": [], "edges": []},
     }
     node_view: dict[str, str] = {}
     for node in nodes:
@@ -212,4 +215,6 @@ def _split_runtime_views(
         target_view = node_view.get(str(edge.get("target_node_id")))
         if source_view == target_view and source_view in views:
             views[source_view]["edges"].append(edge)
+        elif source_view in views and target_view in views:
+            views["cross_layer_edges"]["edges"].append(edge)
     return views

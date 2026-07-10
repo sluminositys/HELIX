@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 
 from lattice.capability_evolution import RuntimeDiscoveryResult
 from lattice.orchestration import run_execution
+from lattice.runtime import ScriptGenerationAgent, ScriptRunner, StaticScriptDraftProvider
 from lattice.schemas import (
     AgenticExecutionPlan,
     AgenticExecutionStep,
@@ -86,7 +88,16 @@ class FakeFullGraphStore:
         return None
 
 
-def test_execution_flow_generates_script_and_writes_experience_patch() -> None:
+def _test_script_generator() -> ScriptGenerationAgent:
+    return ScriptGenerationAgent(
+        StaticScriptDraftProvider(
+            "from pathlib import Path\n"
+            "Path('result.json').write_text('{\"status\": \"ok\"}', encoding='utf-8')\n"
+        )
+    )
+
+
+def test_execution_flow_generates_script_without_promoting_single_run(tmp_path: Path) -> None:
     full_store = FakeFullGraphStore()
 
     state = run_execution(
@@ -94,6 +105,8 @@ def test_execution_flow_generates_script_and_writes_experience_patch() -> None:
         session_id="session-1",
         healthy_graph_store=FakeHealthyGraphStore(),
         full_graph_store=full_store,
+        script_generation_agent=_test_script_generator(),
+        script_runner=ScriptRunner(output_root=tmp_path),
     )
 
     assert state["status"] == "executed"
@@ -101,9 +114,25 @@ def test_execution_flow_generates_script_and_writes_experience_patch() -> None:
     assert state["script_review"].approved is True
     assert state["script_execution_result"].status == "success"
     assert state["run_record"].referenced_skill_ids == ["skill-double"]
-    assert state["graph_write_id"] == "write-1"
-    assert full_store.applied_patch is not None
-    assert full_store.applied_patch.nodes_to_add[0]["node_type"] == "SuccessPattern"
+    assert state["result_verification"].status == "completed"
+    assert state["experience_candidate"].generality == "single_observation"
+    assert state["experience_generalization"].eligible is False
+    assert state["experience_patch"] is None
+    assert state["graph_write_id"] is None
+    assert full_store.applied_patch is None
+    assert all(item["exists"] for item in state["artifact_manifest"].artifacts)
+
+
+def test_execution_fails_closed_when_no_script_model_is_configured() -> None:
+    state = run_execution(
+        "Run executable workflow",
+        session_id="session-no-model",
+        healthy_graph_store=FakeHealthyGraphStore(),
+    )
+
+    assert state["script_proposal"] is None
+    assert state["script_execution_result"] is None
+    assert "No chat model is configured" in state["response"]
 
 
 class EmptyHealthyGraphStore:
@@ -201,7 +230,19 @@ class StaticRuntimeDiscoverer:
         )
 
 
-def test_execution_can_use_runtime_discovery_when_g2_has_no_path() -> None:
+class SequencedScriptProvider:
+    def __init__(self, scripts: list[str]) -> None:
+        self.scripts = scripts
+        self.calls = 0
+
+    def draft(self, prompt: str) -> str:
+        _ = prompt
+        script = self.scripts[min(self.calls, len(self.scripts) - 1)]
+        self.calls += 1
+        return script
+
+
+def test_execution_can_use_runtime_discovery_when_g2_has_no_path(tmp_path: Path) -> None:
     full_store = FakeFullGraphStore()
     healthy_store = EmptyHealthyGraphStore()
 
@@ -211,14 +252,41 @@ def test_execution_can_use_runtime_discovery_when_g2_has_no_path() -> None:
         healthy_graph_store=healthy_store,
         full_graph_store=full_store,
         runtime_discoverer=StaticRuntimeDiscoverer(),
+        script_generation_agent=_test_script_generator(),
+        script_runner=ScriptRunner(output_root=tmp_path),
     )
 
     assert state["status"] == "executed"
-    assert state["workflow_report"].status == "pass"
+    assert state["workflow_report"].status == "warning"
+    assert state["workflow_report"].warnings[0].code == (
+        "DYNAMIC_STRATEGY_WITHOUT_G2_PATH"
+    )
     assert state["runtime_discovery_result"].status == "candidate_plan_ready"
     assert state["run_record"].referenced_skill_ids == ["skill-increment"]
     assert [patch.patch_id for patch in full_store.applied_patches] == [
         "patch-runtime-discovered",
-        state["experience_patch"].patch_id,
     ]
-    assert [patch.target_graph_tier for patch in healthy_store.applied_patches] == ["G1", "G1"]
+    assert state["experience_patch"] is None
+    assert healthy_store.applied_patches == []
+
+
+def test_execution_revises_invalid_script_before_running(tmp_path: Path) -> None:
+    provider = SequencedScriptProvider(
+        [
+            "def broken(:\n    pass\n",
+            "from pathlib import Path\nPath('result.txt').write_text('ok', encoding='utf-8')\n",
+        ]
+    )
+
+    state = run_execution(
+        "Run executable workflow",
+        session_id="session-revision",
+        healthy_graph_store=FakeHealthyGraphStore(),
+        script_generation_agent=ScriptGenerationAgent(provider),
+        script_runner=ScriptRunner(output_root=tmp_path),
+    )
+
+    assert provider.calls == 2
+    assert state["script_revision_count"] == 1
+    assert state["script_review"].approved is True
+    assert state["result_verification"].status == "completed"

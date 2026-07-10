@@ -1,11 +1,13 @@
 [project]
 name = "lattice"
 version = "0.1.0"
-description = "Layered Agent for Tool-Augmented Task Intelligence, Curation, and Evolution in Genomics and Bioinformatics."
+description = "Graph-native autonomous research agent with governed, evolving memory."
 readme = "README.md"
 requires-python = ">=3.10,<3.13"
 dependencies = [
     "langchain>=1.0.0",
+    "langchain-deepseek>=1.0.1",
+    "langchain-openai>=0.2.0",
     "langgraph>=1.0.0",
     "neo4j>=5.20",
     "pydantic>=2.7",
